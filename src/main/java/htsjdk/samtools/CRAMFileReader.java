@@ -26,7 +26,7 @@ import htsjdk.samtools.seekablestream.SeekableFileStream;
 import htsjdk.samtools.seekablestream.SeekableStream;
 import htsjdk.samtools.util.CloseableIterator;
 import htsjdk.samtools.util.CloserUtil;
-import htsjdk.samtools.util.CoordMath;
+import htsjdk.samtools.util.Log;
 import htsjdk.samtools.util.RuntimeEOFException;
 
 import java.io.File;
@@ -56,6 +56,8 @@ public class CRAMFileReader extends SamReader.ReaderImplementation implements Sa
     private boolean mEnableIndexMemoryMapping;
 
     private ValidationStringency validationStringency;
+
+    private final static Log log = Log.getInstance(CRAMFileReader.class);
 
     /**
      * Create a CRAMFileReader from either a file or input stream using the reference source returned by
@@ -95,6 +97,7 @@ public class CRAMFileReader extends SamReader.ReaderImplementation implements Sa
         this.cramFile = cramFile;
         this.inputStream = inputStream;
         this.referenceSource = referenceSource;
+        if (cramFile != null) initIndexFile(null);
         getIterator();
     }
 
@@ -117,7 +120,7 @@ public class CRAMFileReader extends SamReader.ReaderImplementation implements Sa
         }
 
         this.cramFile = cramFile;
-        this.mIndexFile = indexFile;
+        initIndexFile(indexFile);
         this.referenceSource = referenceSource;
 
         getIterator();
@@ -140,6 +143,7 @@ public class CRAMFileReader extends SamReader.ReaderImplementation implements Sa
 
         this.cramFile = cramFile;
         this.referenceSource = referenceSource;
+        initIndexFile(null);
 
         getIterator();
     }
@@ -196,7 +200,7 @@ public class CRAMFileReader extends SamReader.ReaderImplementation implements Sa
     public CRAMFileReader(final InputStream stream,
                           final File indexFile, final CRAMReferenceSource referenceSource,
                           final ValidationStringency validationStringency) throws IOException {
-        this(stream, indexFile == null ? null: new SeekableFileStream(indexFile), referenceSource, validationStringency);
+        this(stream, indexFile == null ? null : new SeekableFileStream(indexFile), referenceSource, validationStringency);
     }
 
     /**
@@ -214,8 +218,25 @@ public class CRAMFileReader extends SamReader.ReaderImplementation implements Sa
     public CRAMFileReader(final File cramFile,
                           final File indexFile, final CRAMReferenceSource referenceSource,
                           final ValidationStringency validationStringency) throws IOException {
-        this(new FileInputStream(cramFile), indexFile, referenceSource, validationStringency);
+        this(new FileInputStream(cramFile),
+                wrapIndexFile(cramFile, indexFile),
+                referenceSource,
+                validationStringency);
         this.cramFile = cramFile;
+        initIndexFile(indexFile);
+    }
+
+    private void initIndexFile(final File indexFile) {
+        mIndexFile = indexFile == null ? SamFiles.findIndex(cramFile) : indexFile;
+        if (mIndexFile != null && mIndexFile.lastModified() < cramFile.lastModified()) {
+            log.warn("CRAM index file " + mIndexFile.getAbsolutePath() +
+                    " is older than CRAM " + cramFile.getAbsolutePath());
+        }
+    }
+
+    private static SeekableFileStream wrapIndexFile(final File cramFile, File indexFile) throws FileNotFoundException {
+        if (indexFile == null) indexFile = SamFiles.findIndex(cramFile);
+        return indexFile == null ? null : new SeekableFileStream(indexFile);
     }
 
     @Override
